@@ -1,0 +1,49 @@
+data:
+  ticker: ACB
+  offline: true
+  horizon: 5
+  sequence_length: 20
+  features:
+    - return_1d
+    - return_5d
+    - return_10d
+    - return_20d
+    - MA_5
+    - MA_10
+    - MA_20
+    - MA_50
+    - rolling_volatility_5
+    - rolling_volatility_20
+    - volume_change
+    - volume_ma_20
+    - high_low_range
+    - open_close_range
+split:
+  train: 0.70
+  validation: 0.15
+  test: 0.15
+warning:
+  q_warning: 0.70
+  q_high: 0.90
+seed: 42
+models:
+  garch:
+    mean: Zero
+    distribution: normal
+  xgboost:
+    n_estimators: 160
+    max_depth: 3
+    learning_rate: 0.05
+    subsample: 0.9
+    colsample_bytree: 0.9
+    n_jobs: 2
+  lstm:
+    hidden_size: 32
+    epochs: 25
+    patience: 5
+    batch_size: 32
+    learning_rate: 0.001
+    weight_decay: 0.0001
+paths:
+  raw: data/raw
+  artifacts: artifacts
