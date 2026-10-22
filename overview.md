@@ -193,7 +193,7 @@ Notebook phục vụ phân tích/thử nghiệm tương tác. Luồng chạy tá
 | `<model>.joblib` | Mô hình đã fit và thông tin cần để dự báo |
 | `metadata.json` | Ticker, target, horizon, feature schema, đơn vị, cấu hình, các khoảng/số mẫu split, số ngày test khớp |
 | `warning.json` | Quantile và ngưỡng WARNING/HIGH fit trên train |
-| `predictions.csv` | Dự báo test và latest, actual nếu có, nhãn rủi ro và partition |
+| `train_predictions.csv` | Dự báo test và latest được tạo trong pipeline train, actual nếu có, nhãn rủi ro và partition |
 | `metrics.json` | Metrics hồi quy và phân loại HIGH theo từng model |
 | `shap.json` | Global/local SHAP cho XGBoost khi XGBoost được train |
 

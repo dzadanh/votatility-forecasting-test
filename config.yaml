@@ -23,8 +23,12 @@ split:
   validation: 0.15
   test: 0.15
 warning:
-  q_warning: 0.70
-  q_high: 0.90
+  q_warning: 0.5
+  q_high: 0.7
+alert_policy:
+  # Validation calibration limits; the selector favors recall within these limits.
+  max_alert_rate: 0.15
+  min_precision: 0.25
 seed: 42
 models:
   garch:

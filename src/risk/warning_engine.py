@@ -15,6 +15,7 @@ class WarningEngine:
         self.q_warning, self.q_high = q_warning, q_high
         self.warning_threshold: float | None = None
         self.high_threshold: float | None = None
+        self.model_high_thresholds: dict[str, float] = {}
 
     def fit(self, train_targets) -> "WarningEngine":
         values = np.asarray(train_targets, dtype=float).reshape(-1)
@@ -25,14 +26,20 @@ class WarningEngine:
             raise ValueError("Training quantiles coincide; risk levels are degenerate")
         return self
 
-    def classify(self, values):
+    def set_model_high_threshold(self, model: str, threshold: float) -> None:
+        if not np.isfinite(threshold) or threshold < 0:
+            raise ValueError("Model HIGH threshold must be finite and nonnegative")
+        self.model_high_thresholds[str(model)] = float(threshold)
+
+    def classify(self, values, model: str | None = None):
         if self.warning_threshold is None or self.high_threshold is None:
             raise ValueError("WarningEngine is not fitted")
         scalar = np.isscalar(values)
         arr = np.asarray(values, dtype=float)
         if not np.isfinite(arr).all() or (arr < 0).any():
             raise ValueError("Risk values must be finite and nonnegative")
-        result = np.where(arr >= self.high_threshold, "HIGH", np.where(arr >= self.warning_threshold, "WARNING", "NORMAL"))
+        high_threshold = self.model_high_thresholds.get(model, self.high_threshold) if model else self.high_threshold
+        result = np.where(arr >= high_threshold, "HIGH", np.where(arr >= self.warning_threshold, "WARNING", "NORMAL"))
         return str(result.item()) if scalar else result
 
     def save(self, path: str | Path) -> None:
@@ -40,11 +47,13 @@ class WarningEngine:
             raise ValueError("WarningEngine is not fitted")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_text(json.dumps({"q_warning": self.q_warning, "q_high": self.q_high,
-            "warning_threshold": self.warning_threshold, "high_threshold": self.high_threshold}, indent=2), encoding="utf-8")
+            "warning_threshold": self.warning_threshold, "high_threshold": self.high_threshold,
+            "model_high_thresholds": self.model_high_thresholds}, indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, path: str | Path) -> "WarningEngine":
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         engine = cls(data["q_warning"], data["q_high"])
         engine.warning_threshold, engine.high_threshold = data["warning_threshold"], data["high_threshold"]
+        engine.model_high_thresholds = {str(k): float(v) for k, v in data.get("model_high_thresholds", {}).items()}
         return engine

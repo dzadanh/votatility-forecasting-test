@@ -34,7 +34,7 @@ python -m streamlit run app/app.py
 
 Mỗi model nhận frame lịch sử và danh sách origin date, xuất `date`, `model`, `predicted_volatility` cùng đơn vị không âm. XGBoost và LSTM còn lưu `raw_prediction`; giá trị hồi quy âm được chặn ở 0 cho cảnh báo. SHAP giải thích **đầu ra thô** XGBoost, trước khi chặn. GARCH khớp tham số trên train rồi lọc return quan sát đến từng origin với tham số cố định. Căn bậc hai trung bình phương sai dự báo nhiều bước chỉ là **xấp xỉ** target độ lệch chuẩn mẫu thực tế, không phải cùng một đại lượng theo toán học.
 
-Ngưỡng NORMAL/WARNING/HIGH lấy quantile 0.70/0.90 của **target train thực tế**. Chúng là nhãn theo độ biến động, không phải xác suất lỗ hay tín hiệu mua bán. Model được chọn bằng validation theo thời gian; test chỉ dùng để báo cáo cuối. GARCH và LSTM không có SHAP trong bản mẫu.
+Ngưỡng NORMAL/WARNING và nhãn HIGH thực tế lấy quantile 0.70/0.90 của **target train thực tế**. Ngưỡng dự báo HIGH được hiệu chỉnh riêng từng model trên validation, ưu tiên recall trong giới hạn `alert_policy.max_alert_rate` và `alert_policy.min_precision`; nếu validation không có ngưỡng thỏa điều kiện thì dùng lại quantile HIGH train. `high_alert_event` đánh dấu lần đầu bước vào HIGH trong chuỗi dự báo đã lưu để lớp thông báo bên ngoài có thể gộp các ngày HIGH liên tiếp. Các mức là nhãn theo độ biến động, không phải xác suất lỗ hay tín hiệu mua bán. Test chỉ dùng để báo cáo cuối. GARCH và LSTM không có SHAP trong bản mẫu.
 
 ## Artifact ổn định
 
@@ -42,11 +42,11 @@ Ngưỡng NORMAL/WARNING/HIGH lấy quantile 0.70/0.90 của **target train th�
 
 | File | Nội dung |
 |---|---|
-| `metadata.json` | ticker, target, horizon, danh sách feature, đơn vị, seed, cấu hình model, khoảng ngày và số mẫu mỗi split, số ngày test khớp |
-| `warning.json` | quantile và hai ngưỡng số đã fit |
+| `metadata.json` | ticker, target, horizon, danh sách feature, đơn vị, seed, cấu hình model, khoảng ngày và số mẫu mỗi split, số ngày test khớp, chính sách và kết quả hiệu chỉnh cảnh báo trên validation |
+| `warning.json` | ngưỡng WARNING/HIGH train và ngưỡng HIGH vận hành theo từng model |
 | `<model>.joblib` | model đã fit; chỉ tải artifact đáng tin cậy |
-| `metrics.json` | MAE, RMSE, R², số mẫu; precision, recall, F1, support và confusion matrix cho HIGH |
-| `predictions.csv` | `date,ticker,partition,model,actual_volatility,predicted_volatility,raw_prediction,risk_level,actual_risk_level`; partition là `test` hoặc `latest`, actual của latest trống |
+| `metrics.json` | MAE, RMSE, R², số mẫu; precision, recall, F1 và support cho NORMAL/WARNING/HIGH, confusion matrix 3×3 (hàng là mức thực tế, cột là mức dự báo), cùng metric cảnh báo HIGH |
+| `train_predictions.csv` | dự báo test/latest được tạo trong pipeline train, mức rủi ro và `high_alert_event` đánh dấu lần chuyển mới sang HIGH; actual của latest trống |
 | `shap.json` | global mean absolute SHAP và giá trị local, feature input, base value, raw output, clipped forecast |
 
 Dashboard chỉ đọc các output đã lưu và CSV cục bộ; không tự huấn luyện lại khi rerender. CLI `predict` tái tạo feature từ CSV thô và từ chối model lưu có schema/target/horizon không khớp.
