@@ -43,6 +43,7 @@ def predict_latest(ticker="ACB", model="xgboost", config_path=None, artifact_dir
     prediction = fitted.predict(history, [latest]).iloc[0].to_dict()
     prediction["date"] = str(latest.date())
     prediction["ticker"] = ticker.upper()
-    prediction["risk_level"] = WarningEngine.load(out / "warning.json").classify(prediction["predicted_volatility"])
+    prediction["risk_level"] = WarningEngine.load(out / "warning.json").classify(
+        prediction["predicted_volatility"], model=model)
     prediction["ground_truth_available"] = False
     return prediction

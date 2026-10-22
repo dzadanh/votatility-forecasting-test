@@ -49,12 +49,13 @@ def validate_data(data: pd.DataFrame, *, clean: bool = False) -> pd.DataFrame:
         | (result["low"] > result[["open", "close"]].min(axis=1))
         | (result["high"] < result["low"])
     )
+    invalid_rows = result.loc[invalid_ohlc, ["date", "open", "high", "low", "close"]]
     if invalid_ohlc.any():
-        raise ValueError(f"Có {int(invalid_ohlc.sum())} dòng vi phạm quan hệ OHLC.")
+        raise ValueError(f"Có {int(invalid_ohlc.sum())} dòng vi phạm quan hệ OHLC." + invalid_rows.to_string(index=False))
     if (result[["open", "high", "low", "close"]] <= 0).any().any():
-        raise ValueError("Các giá trị OHLC phải lớn hơn 0.")
+        raise ValueError("Các giá trị OHLC phải lớn hơn 0."+ result.loc[(result[["open", "high", "low", "close"]] <= 0).any(axis=1), ["date", "open", "high", "low", "close"]].to_string(index=False))
     if (result["volume"] < 0).any():
-        raise ValueError("Volume không được âm.")
+        raise ValueError("Volume không được âm." + result.loc[result["volume"] < 0, ["date", "volume"]].to_string(index=False))
 
     duplicate = result["date"].duplicated(keep="last")
     if duplicate.any():

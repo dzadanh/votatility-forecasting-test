@@ -58,7 +58,7 @@ def download_company_data(company_name: str, start_date: str, end_date: str | No
 
 if __name__ == "__main__":
     # Có thể truyền mã "ACB" hoặc tên đầy đủ, ví dụ "Ngân hàng Thương mại Cổ phần Á Châu".
-    download_company_data("ACB", start_date="2018-01-01")
-    download_company_data("FPT", start_date="2018-01-01")
-    download_company_data("HPG", start_date="2022-03-01",end_date="2022-11-30")
+    ##download_company_data("ACB", start_date="2018-01-01")
+    ##download_company_data("FPT", start_date="2018-01-01")
+    download_company_data("HPG", start_date="2003-01-01", end_date="2009-12-31")  # Ví dụ ngày kết thúc trước ngày bắt đầu để kiểm tra lỗi
     

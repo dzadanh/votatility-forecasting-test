@@ -14,7 +14,7 @@ from pages import overview, forecast, comparison, explanation
 @st.cache_data
 def read_outputs(path: str):
     folder = Path(path)
-    predictions = pd.read_csv(folder / "predictions.csv", parse_dates=["date"])
+    predictions = pd.read_csv(folder / "train_predictions.csv", parse_dates=["date"])
     files = {name: json.loads((folder / f"{name}.json").read_text(encoding="utf-8"))
              for name in ("metrics", "metadata", "warning")}
     shap_path = folder / "shap.json"
