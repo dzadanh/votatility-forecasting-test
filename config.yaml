@@ -19,9 +19,10 @@ data:
     - high_low_range
     - open_close_range
 split:
-  train: 0.70
-  validation: 0.15
   test: 0.15
+  n_splits: 5
+  test_size: 125
+  gap: 5
 warning:
   q_warning: 0.5
   q_high: 0.7
@@ -50,4 +51,5 @@ models:
     weight_decay: 0.0001
 paths:
   raw: data/raw
+  processed: data/processed
   artifacts: artifacts

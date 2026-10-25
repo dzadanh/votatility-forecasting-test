@@ -24,3 +24,7 @@ def preprocess_data(company_name: str, save: bool = True) -> pd.DataFrame:
         PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
         cleaned.to_csv(PROCESSED_DATA_DIR / f'{symbol}_clean.csv', index=False, encoding='utf-8-sig')
     return cleaned
+if __name__ == '__main__':
+    preprocess_data('ACB', save=True)
+    preprocess_data('FPT', save=True)
+    preprocess_data('HPG', save=True)
