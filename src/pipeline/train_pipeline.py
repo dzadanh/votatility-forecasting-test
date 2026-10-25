@@ -38,8 +38,6 @@ def run_training(ticker: str = "ACB", model: str = "all", fast: bool = False,
     if not processed_dir.is_absolute():
         processed_dir = ROOT / processed_dir
     processed_dir.mkdir(parents=True, exist_ok=True)
-    processed_path = processed_dir / f"{ticker.lower()}_features_target_{dataset.horizon}d.csv"
-    dataset.frame.to_csv(processed_path, index=False, encoding="utf-8-sig")
     history = valid_history(dataset)
     out = Path(artifact_dir or ROOT / config["paths"]["artifacts"]) / ticker.upper()
     out.mkdir(parents=True, exist_ok=True)
@@ -51,7 +49,6 @@ def run_training(ticker: str = "ACB", model: str = "all", fast: bool = False,
                 "features": list(dataset.features), "unit": UNIT, "sequence_length": config["data"]["sequence_length"],
                 "seed": config["seed"], "fast": fast, "source_csv": str(csv_path or
                     Path(config["paths"]["raw"]) / f"{ticker.lower()}.csv"), "model_settings": {},
-                "processed_dataset": str(processed_path),
                 "splits": {"train": {"first": str(dataset.train.date.min().date()),
                                       "last": str(dataset.train.date.max().date()), "count": len(dataset.train)},
                            "validation_folds": [{"train_count": len(tr), "first": str(val.date.min().date()),
@@ -66,11 +63,12 @@ def run_training(ticker: str = "ACB", model: str = "all", fast: bool = False,
             fitted = GARCHModel(dataset.horizon, settings["mean"], settings["distribution"]).fit(dataset.train)
         elif name == "xgboost":
             settings = dict(config["models"][name])
-            if fast:
-                settings["n_estimators"] = min(settings["n_estimators"], 40)
-            tuning = tune_xgboost(dataset.validation_folds, dataset.features, dataset.target,
-                                  dataset.horizon, settings, config["seed"], fast=fast)
-            settings = tuning["params"]
+            tuning_config = settings.pop("tuning", {})
+            tuning = tune_xgboost(
+                dataset.train, dataset.validation_folds, dataset.features,
+                dataset.target, settings, tuning_config, config["seed"], fast=fast,
+            )
+            settings.update(tuning["params"])
             metadata["xgboost_tuning"] = tuning
             fitted = XGBoostModel(dataset.features, dataset.target, dataset.horizon, settings, config["seed"]).fit(dataset.train)
         else:

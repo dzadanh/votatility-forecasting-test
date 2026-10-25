@@ -22,7 +22,7 @@ python -m pytest -q
 python -m streamlit run app/app.py
 ```
 
-`--fast` giới hạn XGBoost ở hai cấu hình thử và LSTM ở tối đa ba epoch. Bỏ cờ để dùng tám cấu hình và số epoch trong `config.yaml`. Có thể thay `--model all` bằng `garch`, `xgboost`, hoặc `lstm`; để so sánh đủ ba mô hình trên cùng ngày test, chạy `all`. Test `test_offline_acb_end_to_end` tự chạy cả ba mô hình ở chế độ nhanh.
+`--fast` giới hạn XGBoost ở hai cấu hình thử và LSTM ở tối đa ba epoch. Bỏ cờ để dùng lưới XGBoost trong `config.yaml` (1.620 cấu hình, 5 fold; tổng cộng 8.100 lượt fit) và số epoch LSTM đã cấu hình. Lưới này có thể mất nhiều thời gian; có thể dùng `--fast` để kiểm tra nhanh luồng chạy. XGBoost dùng GridSearchCV trên các fold thời gian; số luồng của estimator được cố định và việc song song hóa chỉ diễn ra ở tầng tìm kiếm. Kết quả tuning lưu RMSE validation cùng baseline trung bình target và rolling volatility 5 phiên nếu có. Có thể thay `--model all` bằng `garch`, `xgboost`, hoặc `lstm`; để so sánh đủ ba mô hình trên cùng ngày test, chạy `all`. Test `test_offline_acb_end_to_end` tự chạy cả ba mô hình ở chế độ nhanh.
 
 `--csv đường/dẫn/file.csv` cho phép chọn CSV OHLCV cục bộ khác; hoặc đổi `paths.raw` trong config để trỏ tới thư mục CSV theo ticker. Mặc định vẫn dùng `data/raw/acb.csv` qua preprocessing hiện có. Dữ liệu mới phải được kiểm định riêng trước khi diễn giải kết quả.
 

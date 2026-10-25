@@ -62,5 +62,5 @@ if __name__ == "__main__":
     ##download_company_data("FPT", start_date="2018-01-01")
     ##download_company_data("HPG", start_date="2003-01-01", end_date="2009-12-31")
       # Ví dụ ngày kết thúc trước ngày bắt đầu để kiểm tra lỗi
-    download_company_data("VIC", start_date="2020-01-01")
+    download_company_data("HPG", start_date="2020-01-01")
     
