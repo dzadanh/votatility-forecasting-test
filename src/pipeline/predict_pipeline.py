@@ -26,8 +26,7 @@ def predict_latest(ticker="ACB", model="xgboost", config_path=None, artifact_dir
     source = csv_path or (metadata.get("source_csv") if metadata.get("source_csv") != default_source else None)
     dataset = prepare_dataset(ticker, config, source)
     expected = {"ticker": ticker.upper(), "target": dataset.target, "horizon": dataset.horizon,
-                "features": list(dataset.features), "unit": UNIT,
-                "sequence_length": config["data"]["sequence_length"]}
+                "features": list(dataset.features), "unit": UNIT}
     if any(metadata.get(key) != value for key, value in expected.items()):
         raise ValueError("Saved model metadata is incompatible with current data schema/configuration")
     if model not in metadata.get("model_settings", {}):
@@ -38,12 +37,15 @@ def predict_latest(ticker="ACB", model="xgboost", config_path=None, artifact_dir
         getattr(fitted, "unit", None) != UNIT or
         (model != "garch" and getattr(fitted, "features", None) != dataset.features)):
         raise ValueError("Saved model schema is incompatible")
+    if model == "lstm" and metadata.get("sequence_length") != fitted.sequence_length:
+        raise ValueError("Saved LSTM sequence length does not match its metadata")
     history = valid_history(dataset)
     latest = history["date"].max()
     prediction = fitted.predict(history, [latest]).iloc[0].to_dict()
     prediction["date"] = str(latest.date())
     prediction["ticker"] = ticker.upper()
     prediction["risk_level"] = WarningEngine.load(out / "warning.json").classify(
-        prediction["predicted_volatility"], model=model)
+        prediction["predicted_volatility"], model=model,
+        high_probability=prediction.get("high_probability"))
     prediction["ground_truth_available"] = False
     return prediction

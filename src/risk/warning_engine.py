@@ -16,6 +16,7 @@ class WarningEngine:
         self.warning_threshold: float | None = None
         self.high_threshold: float | None = None
         self.model_high_thresholds: dict[str, float] = {}
+        self.model_high_probability_thresholds: dict[str, float] = {}
 
     def fit(self, train_targets) -> "WarningEngine":
         values = np.asarray(train_targets, dtype=float).reshape(-1)
@@ -31,7 +32,12 @@ class WarningEngine:
             raise ValueError("Model HIGH threshold must be finite and nonnegative")
         self.model_high_thresholds[str(model)] = float(threshold)
 
-    def classify(self, values, model: str | None = None):
+    def set_model_high_probability_threshold(self, model: str, threshold: float) -> None:
+        if not np.isfinite(threshold) or not 0 <= threshold <= 1:
+            raise ValueError("Model HIGH probability threshold must be between zero and one")
+        self.model_high_probability_thresholds[str(model)] = float(threshold)
+
+    def classify(self, values, model: str | None = None, high_probability=None):
         if self.warning_threshold is None or self.high_threshold is None:
             raise ValueError("WarningEngine is not fitted")
         scalar = np.isscalar(values)
@@ -39,7 +45,16 @@ class WarningEngine:
         if not np.isfinite(arr).all() or (arr < 0).any():
             raise ValueError("Risk values must be finite and nonnegative")
         high_threshold = self.model_high_thresholds.get(model, self.high_threshold) if model else self.high_threshold
-        result = np.where(arr >= high_threshold, "HIGH", np.where(arr >= self.warning_threshold, "WARNING", "NORMAL"))
+        if model in self.model_high_probability_thresholds:
+            if high_probability is None:
+                raise ValueError("HIGH probability is required for this model")
+            probability = np.asarray(high_probability, dtype=float)
+            if probability.shape != arr.shape or not np.isfinite(probability).all() or (probability < 0).any() or (probability > 1).any():
+                raise ValueError("HIGH probability must align with values and be between zero and one")
+            high = probability >= self.model_high_probability_thresholds[model]
+        else:
+            high = arr >= high_threshold
+        result = np.where(high, "HIGH", np.where(arr >= self.warning_threshold, "WARNING", "NORMAL"))
         return str(result.item()) if scalar else result
 
     def save(self, path: str | Path) -> None:
@@ -48,7 +63,8 @@ class WarningEngine:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_text(json.dumps({"q_warning": self.q_warning, "q_high": self.q_high,
             "warning_threshold": self.warning_threshold, "high_threshold": self.high_threshold,
-            "model_high_thresholds": self.model_high_thresholds}, indent=2), encoding="utf-8")
+            "model_high_thresholds": self.model_high_thresholds,
+            "model_high_probability_thresholds": self.model_high_probability_thresholds}, indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, path: str | Path) -> "WarningEngine":
@@ -56,4 +72,5 @@ class WarningEngine:
         engine = cls(data["q_warning"], data["q_high"])
         engine.warning_threshold, engine.high_threshold = data["warning_threshold"], data["high_threshold"]
         engine.model_high_thresholds = {str(k): float(v) for k, v in data.get("model_high_thresholds", {}).items()}
+        engine.model_high_probability_thresholds = {str(k): float(v) for k, v in data.get("model_high_probability_thresholds", {}).items()}
         return engine

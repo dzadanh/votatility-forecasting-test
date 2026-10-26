@@ -21,5 +21,6 @@ def align_forecasts(forecasts: list[pd.DataFrame], truth: pd.DataFrame, target: 
         for date, row in matched.iterrows():
             rows.append({"date": date, "model": row["model"], "actual_volatility": float(actual.loc[date]),
                          "predicted_volatility": float(row["predicted_volatility"]),
-                         "raw_prediction": float(row.get("raw_prediction", row["predicted_volatility"]))})
+                         "raw_prediction": float(row.get("raw_prediction", row["predicted_volatility"])),
+                         "high_probability": float(row["high_probability"]) if "high_probability" in row else float("nan")})
     return pd.DataFrame(rows).sort_values(["date", "model"]).reset_index(drop=True)

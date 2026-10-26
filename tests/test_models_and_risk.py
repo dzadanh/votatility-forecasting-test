@@ -5,7 +5,7 @@ import pytest
 from sklearn.preprocessing import StandardScaler
 
 from src.config import load_config
-from src.evaluation.warning_metrics import high_warning_metrics
+from src.evaluation.warning_metrics import calibrate_high_threshold, high_warning_metrics
 from src.features.builder import build_features
 from src.features.target import add_future_volatility_target
 from src.models.garch_model import GARCHModel
@@ -56,12 +56,32 @@ def test_lstm_train_only_scaling_and_smoke(frames, tmp_path):
     features, history, train, val = frames
     model = LSTMModel(features, "target_volatility_5d", 5, 10,
                       {"hidden_size": 8, "epochs": 2, "batch_size": 16, "patience": 2}, 42).fit(train, val, history)
+    assert 1 <= model.best_epoch <= len(model.training_history) <= 2
+    assert model.validation_loss == pytest.approx(
+        model.training_history[model.best_epoch - 1]["validation_mse"]
+    )
+    assert all(np.isfinite(row["train_mse"]) for row in model.training_history)
     np.testing.assert_allclose(model.scaler.mean_, feature_matrix(train, features).mean().to_numpy())
     dates, sequences = make_sequences(history, val.date, features, 10, model.scaler)
     assert len(dates) == len(val) and sequences.shape == (len(val), 10, len(features))
     forecast = model.predict(history, val.date)
     assert (forecast.predicted_volatility >= 0).all()
     path = tmp_path / "l.joblib"
+    model.save(path)
+    pd.testing.assert_frame_equal(forecast, LSTMModel.load(path).predict(history, val.date))
+
+
+def test_lstm_high_head_outputs_persistent_probability(frames, tmp_path):
+    features, history, train, val = frames
+    threshold = float(train["target_volatility_5d"].median())
+    model = LSTMModel(features, "target_volatility_5d", 5, 10,
+                      {"hidden_size": 8, "epochs": 2, "batch_size": 16,
+                       "patience": 2, "high_loss_weight": 0.5}, 42).fit(
+                           train, val, history, high_threshold=threshold)
+    forecast = model.predict(history, val.date)
+    assert forecast.high_probability.between(0, 1).all()
+    assert model.best_epoch is not None
+    path = tmp_path / "high.joblib"
     model.save(path)
     pd.testing.assert_frame_equal(forecast, LSTMModel.load(path).predict(history, val.date))
 
@@ -78,3 +98,29 @@ def test_warning_boundaries_and_metrics(tmp_path):
     assert high_warning_metrics([0, 1], [0, 1], 3)["support"] == 0
     with pytest.raises(ValueError):
         WarningEngine().fit([1, 1, 1])
+
+
+def test_high_probability_overrides_volatility_for_high_alert(tmp_path):
+    engine = WarningEngine(.5, .75).fit([0, 1, 2, 3, 4])
+    engine.set_model_high_probability_threshold("lstm", .6)
+    assert engine.classify(0.5, "lstm", .7) == "HIGH"
+    assert engine.classify(4.0, "lstm", .4) == "WARNING"
+    with pytest.raises(ValueError):
+        engine.classify(1.0, "lstm")
+    path = tmp_path / "prob_warning.json"
+    engine.save(path)
+    assert WarningEngine.load(path).classify(0.5, "lstm", .7) == "HIGH"
+
+
+def test_high_budget_fallback_handles_unattainable_precision():
+    actual = [2, 0, 0, 0, 0, 0]
+    scores = [.1, .9, .8, .7, .6, .5]
+    calibrated = calibrate_high_threshold(actual, scores, 1.0,
+        max_alert_rate=1 / 3, min_precision=.5, fallback_threshold=1.0,
+        fallback_to_budget=True)
+    assert calibrated["method"] == "validation_budget_fallback_precision_unmet"
+    assert calibrated["validation"]["alert_count"] == 2
+    no_high = calibrate_high_threshold([0, 0, 0, 0], [.1, .2, .3, .4], 1.0,
+        max_alert_rate=.25, fallback_threshold=1.0, fallback_to_budget=True)
+    assert no_high["method"] == "validation_budget_no_high_events"
+    assert no_high["validation"]["alert_count"] == 1

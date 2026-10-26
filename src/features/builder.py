@@ -33,15 +33,15 @@ def build_features(
     for window in return_windows:
         result[f"return_{window}d"] = np.log(result["close"] / result["close"].shift(window)) * 100
     for window in ma_windows:
-        result[f"MA_{window}"] = result["close"].rolling(window, min_periods=window).mean()
+        moving_average = result["close"].rolling(window, min_periods=window).mean()
+        result[f"close_to_ma_{window}"] = result["close"] / moving_average - 1
     for window in volatility_windows:
         result[f"rolling_volatility_{window}"] = returns.rolling(window, min_periods=window).std()
 
     previous_volume = result["volume"].shift(1)
     result["volume_change"] = (result["volume"] - previous_volume) / previous_volume.replace(0, np.nan)
-    result[f"volume_ma_{volume_window}"] = result["volume"].rolling(
-        volume_window, min_periods=volume_window
-    ).mean()
+    volume_average = result["volume"].rolling(volume_window, min_periods=volume_window).mean()
+    result[f"volume_to_ma_{volume_window}"] = result["volume"] / volume_average.replace(0, np.nan) - 1
     result["high_low_range"] = (result["high"] - result["low"]) / result["close"]
     result["open_close_range"] = (result["close"] - result["open"]) / result["open"]
     return result.replace([np.inf, -np.inf], np.nan)
