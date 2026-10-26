@@ -51,6 +51,7 @@ def run_training(ticker: str = "ACB", model: str = "all", fast: bool = False,
     alert_policy = config.get("alert_policy", {})
     max_alert_rate = float(alert_policy.get("max_alert_rate", 0.15))
     min_precision = float(alert_policy.get("min_precision", 0.25))
+    model_policy_overrides = alert_policy.get("model_overrides", {})
     sequence_length = int(lstm_candidate["sequence_length"]) if lstm_candidate else int(config["data"]["sequence_length"])
     metadata = {"ticker": ticker.upper(), "target": dataset.target, "horizon": dataset.horizon,
                 "features": list(dataset.features), "unit": UNIT, "sequence_length": sequence_length,
@@ -84,6 +85,7 @@ def run_training(ticker: str = "ACB", model: str = "all", fast: bool = False,
                 tuning = tune_xgboost(
                     dataset.train, validation_folds, dataset.features,
                     dataset.target, settings, tuning_config, config["seed"], fast=fast,
+                    high_quantile=warning.q_high,
                 )
                 settings.update(tuning["params"])
             else:
@@ -135,12 +137,15 @@ def run_training(ticker: str = "ACB", model: str = "all", fast: bool = False,
         high_probability = "high_probability" in validation_forecast
         validation_scores = (validation_forecast["high_probability"] if high_probability
                              else validation_forecast["predicted_volatility"])
+        model_policy = model_policy_overrides.get(name, {})
+        model_max_alert_rate = float(model_policy.get("max_alert_rate", max_alert_rate))
+        model_min_precision = float(model_policy.get("min_precision", min_precision))
         calibration = calibrate_high_threshold(
             validation_truth[dataset.target],
             validation_scores,
             warning.high_threshold,
-            max_alert_rate=max_alert_rate,
-            min_precision=min_precision,
+            max_alert_rate=model_max_alert_rate,
+            min_precision=model_min_precision,
             fallback_threshold=1.0 if high_probability else None,
         )
         if high_probability:
@@ -154,6 +159,7 @@ def run_training(ticker: str = "ACB", model: str = "all", fast: bool = False,
     warning.save(out / "warning.json")
     metadata["alert_calibration"] = alert_calibration
     metadata["alert_policy"] = {"max_alert_rate": max_alert_rate, "min_precision": min_precision,
+                                 "model_overrides": model_policy_overrides,
                                  "actual_high_threshold": warning.high_threshold}
     comparison = align_forecasts(forecasts, dataset.test, dataset.target)
     comparison["ticker"] = ticker.upper()

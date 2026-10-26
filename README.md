@@ -22,9 +22,11 @@ python -m pytest -q
 python -m streamlit run app/app.py
 ```
 
-`--fast` giới hạn XGBoost ở hai cấu hình thử và LSTM ở tối đa ba epoch. Bỏ cờ để dùng lưới XGBoost trong `config.yaml` (1.620 cấu hình, 5 fold; tổng cộng 8.100 lượt fit) và số epoch LSTM đã cấu hình. Lưới này có thể mất nhiều thời gian; có thể dùng `--fast` để kiểm tra nhanh luồng chạy. XGBoost dùng GridSearchCV trên các fold thời gian; số luồng của estimator được cố định và việc song song hóa chỉ diễn ra ở tầng tìm kiếm. Kết quả tuning lưu RMSE validation cùng baseline trung bình target và rolling volatility 5 phiên nếu có. Có thể thay `--model all` bằng `garch`, `xgboost`, hoặc `lstm`; để so sánh đủ ba mô hình trên cùng ngày test, chạy `all`. Test `test_offline_acb_end_to_end` tự chạy cả ba mô hình ở chế độ nhanh.
+`--fast` giới hạn XGBoost ở hai cấu hình thử và LSTM ở tối đa ba epoch; chế độ này chỉ để kiểm tra luồng chạy, không dùng đánh giá chất lượng cảnh báo. Bỏ cờ để dùng lưới XGBoost trong `config.yaml` (15 cấu hình, 5 fold; 75 lượt fit cho bước chọn tham số) và số epoch LSTM đã cấu hình. Lưới có cả cấu hình 5 cây cũ và các cấu hình 50–300 cây. XGBoost dùng GridSearchCV trên các fold thời gian; số luồng của estimator được cố định và việc song song hóa chỉ diễn ra ở tầng tìm kiếm. Ngưỡng HIGH phục vụ chọn tham số được tính từ train của fold đầu tiên, trước mọi validation. Bộ chọn ưu tiên average precision của HIGH trong các cấu hình có RMSE validation không quá 5% so với RMSE tốt nhất; metadata lưu cả hai chỉ số và kết quả từng cấu hình. Có thể thay `--model all` bằng `garch`, `xgboost`, hoặc `lstm`; để so sánh đủ ba mô hình trên cùng ngày test, chạy `all`. Test `test_offline_acb_end_to_end` tự chạy cả ba mô hình ở chế độ nhanh.
 
 `--csv đường/dẫn/file.csv` cho phép chọn CSV OHLCV cục bộ khác; hoặc đổi `paths.raw` trong config để trỏ tới thư mục CSV theo ticker. Mặc định vẫn dùng `data/raw/acb.csv` qua preprocessing hiện có. Dữ liệu mới phải được kiểm định riêng trước khi diễn giải kết quả.
+
+Để kiểm tra XGBoost mới mà vẫn giữ artifact chính, có thể dùng `python -m scripts.train --ticker ACB --model xgboost --artifact-dir artifacts/xgboost_trial` rồi `python -m scripts.evaluate --ticker ACB --artifact-dir artifacts/xgboost_trial`. Thay ticker cho FPT, HPG, VIC; mỗi lần chạy chỉ lưu kết quả mô hình được chọn vào thư mục thử nghiệm.
 
 ## Hợp đồng dữ liệu và mô hình
 
@@ -34,7 +36,9 @@ python -m streamlit run app/app.py
 
 Mỗi model nhận frame lịch sử và danh sách origin date, xuất `date`, `model`, `predicted_volatility` cùng đơn vị không âm. XGBoost và LSTM còn lưu `raw_prediction`; giá trị hồi quy âm được chặn ở 0 cho cảnh báo. SHAP giải thích **đầu ra thô** XGBoost, trước khi chặn. GARCH khớp tham số trên train rồi lọc return quan sát đến từng origin với tham số cố định. Căn bậc hai trung bình phương sai dự báo nhiều bước chỉ là **xấp xỉ** target độ lệch chuẩn mẫu thực tế, không phải cùng một đại lượng theo toán học.
 
-Ngưỡng NORMAL/WARNING và nhãn HIGH thực tế lấy quantile 0.70/0.90 của **target train thực tế**. Ngưỡng dự báo HIGH được hiệu chỉnh riêng từng model trên validation, ưu tiên recall trong giới hạn `alert_policy.max_alert_rate` và `alert_policy.min_precision`; nếu validation không có ngưỡng thỏa điều kiện thì dùng lại quantile HIGH train. `high_alert_event` đánh dấu lần đầu bước vào HIGH trong chuỗi dự báo đã lưu để lớp thông báo bên ngoài có thể gộp các ngày HIGH liên tiếp. Các mức là nhãn theo độ biến động, không phải xác suất lỗ hay tín hiệu mua bán. Test chỉ dùng để báo cáo cuối. GARCH và LSTM không có SHAP trong bản mẫu.
+Ngưỡng NORMAL/WARNING và nhãn HIGH thực tế lấy quantile **0.50/0.70** của target train thực tế. Ngưỡng dự báo HIGH được hiệu chỉnh riêng từng model trên validation, ưu tiên recall trong giới hạn tỷ lệ cảnh báo và precision tối thiểu. Giới hạn mặc định là 15% số ngày validation; `alert_policy.model_overrides.xgboost` cho phép XGBoost dùng tối đa **30%** để ưu tiên phát hiện HIGH. Đây là giới hạn trên validation, không bảo đảm cùng tỷ lệ trên test; tăng cảnh báo có thể làm tăng báo động sai. Nếu không có ngưỡng thỏa điều kiện thì dùng lại quantile HIGH train. `high_alert_event` đánh dấu lần đầu bước vào HIGH trong chuỗi dự báo đã lưu để lớp thông báo bên ngoài có thể gộp các ngày HIGH liên tiếp. Trong pipeline, test chỉ dùng để báo cáo, không dùng chọn tham số hay ngưỡng. GARCH và LSTM không có SHAP trong bản mẫu.
+
+Các giai đoạn test hiện có đã được xem trong quá trình phát triển, kể cả khi so ngân sách cảnh báo XGBoost 15% và 30%. Vì thế kết quả trên những giai đoạn này là **thử nghiệm lịch sử**, chưa phải bằng chứng trên holdout chưa từng xem. Cần một giai đoạn dữ liệu mới để xác nhận mức cải thiện và số báo động sai.
 
 ## Artifact ổn định
 

@@ -44,5 +44,7 @@ def test_explicit_local_csv(monkeypatch, synthetic_ohlcv, tmp_path):
     csv = tmp_path / "sample.csv"
     synthetic_ohlcv.to_csv(csv, index=False)
     monkeypatch.setattr(ds, "preprocess_data", lambda *args, **kwargs: pytest.fail("Default loader should not be called"))
-    data = ds.prepare_dataset("TEST", load_config(), csv_path=csv)
+    config = load_config()
+    config["split"].update({"n_splits": 3, "test_size": 15, "gap": 5})
+    data = ds.prepare_dataset("TEST", config, csv_path=csv)
     assert len(data.frame) == len(synthetic_ohlcv)

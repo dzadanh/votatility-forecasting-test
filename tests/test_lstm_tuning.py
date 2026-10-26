@@ -14,7 +14,8 @@ def test_expanding_folds_purge_and_exclude_test():
         "feature": np.arange(800, dtype=float),
         "target_volatility_5d": np.ones(800),
     })
-    dataset = Dataset(frame, frame.iloc[:500], frame.iloc[505:650],
+    dataset = Dataset(frame, frame.iloc[:650],
+                      ((frame.iloc[:500], frame.iloc[505:650]),),
                       frame.iloc[655:], ("feature",), "target_volatility_5d", 5)
     folds = expanding_folds(dataset, count=3, score_size=80, stop_size=50)
     assert len(folds) == 3
