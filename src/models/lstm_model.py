@@ -63,7 +63,9 @@ class LSTMModel:
         return Net()
 
     def fit(self, training_frame: pd.DataFrame, validation_frame: pd.DataFrame,
-            history_frame: pd.DataFrame, high_threshold: float | None = None) -> "LSTMModel":
+            history_frame: pd.DataFrame,
+            final_training_frame: pd.DataFrame | None = None,
+            high_threshold: float | None = None) -> "LSTMModel":
         try:
             import torch
             from sklearn.preprocessing import StandardScaler
@@ -143,6 +145,53 @@ class LSTMModel:
                 stale += 1
                 if stale >= patience:
                     break
+        if final_training_frame is not None:
+            self.scaler = StandardScaler().fit(
+                feature_matrix(final_training_frame, self.features)
+            )
+            final_history = history_frame.loc[
+                history_frame["date"] <= final_training_frame["date"].max()
+            ].copy()
+            final_dates, final_x = make_sequences(
+                final_history, final_training_frame["date"],
+                self.features, self.sequence_length, self.scaler
+            )
+            final_y = final_training_frame.set_index("date").loc[
+                final_dates, self.target
+            ].to_numpy(dtype="float32")
+
+            final_x = torch.from_numpy(final_x)
+            final_y = torch.from_numpy(final_y)
+            final_high = (final_y >= self.high_threshold).float() if high_weight else None
+
+            torch.manual_seed(self.seed)
+            net = self._network()
+            optimizer = torch.optim.Adam(
+                net.parameters(),
+                lr=float(self.params.get("learning_rate", .001)),
+                weight_decay=float(self.params.get("weight_decay", 1e-4)),
+            )
+
+            for _ in range(self.best_epoch):
+                net.train()
+                for start in range(0, len(final_x), batch_size):
+                    end = start + batch_size
+                    optimizer.zero_grad()
+                    output = net(final_x[start:end])
+                    if high_weight:
+                        volatility, logits = output
+                        loss = (
+                            loss_fn(volatility, final_y[start:end])
+                            + high_weight * high_loss_fn(logits, final_high[start:end])
+                        )
+                    else:
+                        loss = loss_fn(output, final_y[start:end])
+                    loss.backward()
+                    optimizer.step()
+
+            self.state = {
+                k: v.detach().clone() for k, v in net.state_dict().items()
+            }
         return self
 
     def predict(self, history_frame: pd.DataFrame, origin_dates) -> pd.DataFrame:
