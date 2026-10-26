@@ -34,6 +34,10 @@ def run_training(ticker: str = "ACB", model: str = "all", fast: bool = False,
         raise ValueError(f"Unknown model: {model}")
     names = MODEL_NAMES if model == "all" else (model,)
     dataset = prepare_dataset(ticker, config, csv_path)
+    processed_dir = Path(config.get("paths", {}).get("processed", "data/processed"))
+    if not processed_dir.is_absolute():
+        processed_dir = ROOT / processed_dir
+    processed_dir.mkdir(parents=True, exist_ok=True)
     history = valid_history(dataset)
     out = Path(artifact_dir or ROOT / config["paths"]["artifacts"]) / ticker.upper()
     out.mkdir(parents=True, exist_ok=True)
@@ -45,10 +49,13 @@ def run_training(ticker: str = "ACB", model: str = "all", fast: bool = False,
                 "features": list(dataset.features), "unit": UNIT, "sequence_length": config["data"]["sequence_length"],
                 "seed": config["seed"], "fast": fast, "source_csv": str(csv_path or
                     Path(config["paths"]["raw"]) / f"{ticker.lower()}.csv"), "model_settings": {},
-                "splits": {name: {"first": str(getattr(dataset, name)["date"].min().date()),
-                                   "last": str(getattr(dataset, name)["date"].max().date()),
-                                   "count": len(getattr(dataset, name))}
-                           for name in ("train", "validation", "test")}}
+                "splits": {"train": {"first": str(dataset.train.date.min().date()),
+                                      "last": str(dataset.train.date.max().date()), "count": len(dataset.train)},
+                           "validation_folds": [{"train_count": len(tr), "first": str(val.date.min().date()),
+                                                 "last": str(val.date.max().date()), "count": len(val)}
+                                                for tr, val in dataset.validation_folds],
+                           "test": {"first": str(dataset.test.date.min().date()),
+                                    "last": str(dataset.test.date.max().date()), "count": len(dataset.test)}}}
     models, forecasts, alert_calibration = {}, [], {}
     for name in names:
         if name == "garch":
@@ -56,11 +63,12 @@ def run_training(ticker: str = "ACB", model: str = "all", fast: bool = False,
             fitted = GARCHModel(dataset.horizon, settings["mean"], settings["distribution"]).fit(dataset.train)
         elif name == "xgboost":
             settings = dict(config["models"][name])
-            if fast:
-                settings["n_estimators"] = min(settings["n_estimators"], 40)
-            tuning = tune_xgboost(dataset.train, dataset.validation, dataset.features, dataset.target,
-                                  dataset.horizon, settings, config["seed"], fast=fast)
-            settings = tuning["params"]
+            tuning_config = settings.pop("tuning", {})
+            tuning = tune_xgboost(
+                dataset.train, dataset.validation_folds, dataset.features,
+                dataset.target, settings, tuning_config, config["seed"], fast=fast,
+            )
+            settings.update(tuning["params"])
             metadata["xgboost_tuning"] = tuning
             fitted = XGBoostModel(dataset.features, dataset.target, dataset.horizon, settings, config["seed"]).fit(dataset.train)
         else:
@@ -68,15 +76,29 @@ def run_training(ticker: str = "ACB", model: str = "all", fast: bool = False,
             if fast:
                 settings["epochs"] = min(settings["epochs"], 3)
                 settings["patience"] = min(settings["patience"], 2)
+            fold_train, fold_validation = dataset.validation_folds[-1]
             fitted = LSTMModel(dataset.features, dataset.target, dataset.horizon,
                                config["data"]["sequence_length"], settings, config["seed"]).fit(
-                                   dataset.train, dataset.validation, history)
+                                   fold_train, fold_validation, history, final_training_frame=dataset.train)
         metadata["model_settings"][name] = settings
         fitted.save(out / f"{name}.joblib")
         models[name] = fitted
-        validation_forecast = fitted.predict(history, dataset.validation["date"])
+        fold_forecasts = []
+        for fold_train, fold_validation in dataset.validation_folds:
+            if name == "garch":
+                cv_model = GARCHModel(dataset.horizon, settings["mean"], settings["distribution"]).fit(fold_train)
+            elif name == "xgboost":
+                cv_model = XGBoostModel(dataset.features, dataset.target, dataset.horizon,
+                                        settings, config["seed"]).fit(fold_train)
+            else:
+                cv_model = LSTMModel(dataset.features, dataset.target, dataset.horizon,
+                                     config["data"]["sequence_length"], settings, config["seed"]).fit(
+                                         fold_train, fold_validation, history)
+            fold_forecasts.append(cv_model.predict(history, fold_validation["date"]))
+        validation_forecast = pd.concat(fold_forecasts, ignore_index=True).sort_values("date")
+        validation_truth = dataset.validation.sort_values("date").reset_index(drop=True)
         calibration = calibrate_high_threshold(
-            dataset.validation[dataset.target],
+            validation_truth[dataset.target],
             validation_forecast["predicted_volatility"],
             warning.high_threshold,
             max_alert_rate=max_alert_rate,

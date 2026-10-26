@@ -19,9 +19,10 @@ data:
     - high_low_range
     - open_close_range
 split:
-  train: 0.70
-  validation: 0.15
   test: 0.15
+  n_splits: 5
+  test_size: 125
+  gap: 5
 warning:
   q_warning: 0.5
   q_high: 0.7
@@ -40,7 +41,24 @@ models:
     learning_rate: 0.05
     subsample: 0.9
     colsample_bytree: 0.9
-    n_jobs: 2
+    min_child_weight: 1
+    reg_lambda: 1.0
+    # Giữ estimator một luồng; song song hóa ở tầng GridSearchCV.
+    n_jobs: 1
+    tuning:
+      search_n_jobs: 2
+      param_grid:
+        n_estimators: [1, 2, 3, 4, 5]
+        max_depth: [1, 2, 3]
+        learning_rate: [0.01, 0.03, 0.05, 0.07, 0.09, 0.11]
+        subsample: [0.4, 0.45, 0.5, 0.55, 0.6, 0.65]
+        colsample_bytree: [0.1, 0.2, 0.3]
+      fast_param_grid:
+        n_estimators: [3]
+        max_depth: [1, 2]
+        learning_rate: [0.05]
+        subsample: [0.5]
+        colsample_bytree: [0.2]
   lstm:
     hidden_size: 32
     epochs: 25
@@ -50,4 +68,5 @@ models:
     weight_decay: 0.0001
 paths:
   raw: data/raw
+  processed: data/processed
   artifacts: artifacts

@@ -18,6 +18,11 @@ def load_config(path: str | Path = DEFAULT_CONFIG) -> dict:
     features = data["features"]
     if len(features) != len(set(features)) or any(x.startswith("target_") or x == "date" for x in features):
         raise ValueError("Feature schema contains duplicates or forbidden columns")
-    if abs(sum(split.values()) - 1.0) > 1e-8 or any(v <= 0 for v in split.values()):
-        raise ValueError("Chronological split fractions must be positive and sum to one")
+    if not 0 < split["test"] < 1:
+        raise ValueError("Final test fraction must be between zero and one")
+    if any(not isinstance(split[key], int) or split[key] <= 0
+           for key in ("n_splits", "test_size", "gap")):
+        raise ValueError("TimeSeriesSplit n_splits, test_size and gap must be positive integers")
+    if split["gap"] < data["horizon"]:
+        raise ValueError("Split gap must be at least the target horizon to prevent leakage")
     return config

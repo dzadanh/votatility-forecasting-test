@@ -16,14 +16,19 @@ def test_feature_target_scale_and_alignment(synthetic_ohlcv):
 
 def test_purged_split_and_no_target_features(monkeypatch, synthetic_ohlcv):
     monkeypatch.setattr(ds, "preprocess_data", lambda ticker, save=False: synthetic_ohlcv)
-    data = ds.prepare_dataset("TEST", load_config())
-    assert data.train.date.max() < data.validation.date.min() < data.test.date.min()
+    config = load_config()
+    config["split"].update({"test": 0.15, "n_splits": 3, "test_size": 15, "gap": 5})
+    data = ds.prepare_dataset("TEST", config)
+    assert len(data.validation_folds) == 3
+    assert all(len(validation) == 15 for _, validation in data.validation_folds)
     all_dates = data.frame.date.reset_index(drop=True)
-    train_end = all_dates[all_dates == data.train.date.max()].index[0]
-    validation_start = all_dates[all_dates == data.validation.date.min()].index[0]
+    for fold_train, validation in data.validation_folds:
+        assert fold_train.date.max() < validation.date.min()
+        train_end = all_dates[all_dates == fold_train.date.max()].index[0]
+        validation_start = all_dates[all_dates == validation.date.min()].index[0]
+        assert validation_start - train_end > data.horizon
     validation_end = all_dates[all_dates == data.validation.date.max()].index[0]
     test_start = all_dates[all_dates == data.test.date.min()].index[0]
-    assert validation_start - train_end > data.horizon
     assert test_start - validation_end > data.horizon
     assert not any(name.startswith("target_") for name in data.features)
     assert list(ds.feature_matrix(data.train, data.features)) == list(data.features)

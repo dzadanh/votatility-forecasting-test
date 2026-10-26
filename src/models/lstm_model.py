@@ -53,7 +53,8 @@ class LSTMModel:
         self_features = self.features
         return Net()
 
-    def fit(self, training_frame: pd.DataFrame, validation_frame: pd.DataFrame, history_frame: pd.DataFrame) -> "LSTMModel":
+    def fit(self, training_frame: pd.DataFrame, validation_frame: pd.DataFrame, history_frame: pd.DataFrame,
+            final_training_frame: pd.DataFrame | None = None) -> "LSTMModel":
         try:
             import torch
             from sklearn.preprocessing import StandardScaler
@@ -79,8 +80,8 @@ class LSTMModel:
         batch_size = int(self.params.get("batch_size", 32))
         epochs = int(self.params.get("epochs", 25))
         patience = int(self.params.get("patience", 5))
-        best, stale = float("inf"), 0
-        for _ in range(epochs):
+        best, stale, best_epoch = float("inf"), 0, 0
+        for epoch in range(1, epochs + 1):
             net.train()
             for start in range(0, len(train_x), batch_size):
                 optimizer.zero_grad()
@@ -91,13 +92,34 @@ class LSTMModel:
             with torch.no_grad():
                 score = float(loss_fn(net(val_x), val_y))
             if score < best - 1e-8:
-                best, stale = score, 0
+                best, stale, best_epoch = score, 0, epoch
                 self.state = {k: v.detach().clone() for k, v in net.state_dict().items()}
             else:
                 stale += 1
                 if stale >= patience:
                     break
         self.validation_loss = best
+        if final_training_frame is not None:
+            self.scaler = StandardScaler().fit(feature_matrix(final_training_frame, self.features))
+            final_history = history_frame.loc[
+                history_frame["date"] <= final_training_frame["date"].max()
+            ].copy()
+            final_dates, final_x = make_sequences(
+                final_history, final_training_frame["date"], self.features, self.sequence_length, self.scaler
+            )
+            final_y = final_training_frame.set_index("date").loc[final_dates, self.target].to_numpy(dtype="float32")
+            final_x, final_y = torch.from_numpy(final_x), torch.from_numpy(final_y)
+            net = self._network()
+            optimizer = torch.optim.Adam(net.parameters(), lr=float(self.params.get("learning_rate", .001)),
+                                         weight_decay=float(self.params.get("weight_decay", 1e-4)))
+            for _ in range(best_epoch):
+                net.train()
+                for start in range(0, len(final_x), batch_size):
+                    optimizer.zero_grad()
+                    loss = loss_fn(net(final_x[start:start+batch_size]), final_y[start:start+batch_size])
+                    loss.backward()
+                    optimizer.step()
+            self.state = {k: v.detach().clone() for k, v in net.state_dict().items()}
         return self
 
     def predict(self, history_frame: pd.DataFrame, origin_dates) -> pd.DataFrame:

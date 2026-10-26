@@ -28,7 +28,14 @@ class XGBoostModel:
         y = training_frame[self.target].to_numpy(dtype=float)
         if not np.isfinite(y).all():
             raise ValueError("Training target must be finite")
-        self.estimator = XGBRegressor(objective="reg:squarederror", random_state=self.seed, **self.params)
+        # Grid-level parallelism is configured separately; keep each estimator single-threaded
+        # by default to avoid nested CPU oversubscription during cross-validation.
+        estimator_params = {"n_jobs": 1, **self.params}
+        if "tuning" in estimator_params:
+            raise ValueError("Tuning configuration belongs in the training pipeline, not XGBRegressor params")
+        self.estimator = XGBRegressor(
+            objective="reg:squarederror", random_state=self.seed, **estimator_params
+        )
         self.estimator.fit(x, y)
         return self
 
