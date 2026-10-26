@@ -30,6 +30,10 @@ alert_policy:
   # Validation calibration limits; the selector favors recall within these limits.
   max_alert_rate: 0.15
   min_precision: 0.25
+  model_overrides:
+    xgboost:
+      # HIGH-focused experiment; inspect false alerts as well as recall.
+      max_alert_rate: 0.30
 lstm_walk_forward:
   max_alert_rate: 0.30  # validation budget for HIGH-focused LSTM only
   min_precision: 0.25
@@ -43,20 +47,28 @@ models:
     n_estimators: 160
     max_depth: 3
     learning_rate: 0.05
-    subsample: 0.9
-    colsample_bytree: 0.9
+    subsample: 0.8
+    colsample_bytree: 0.8
     min_child_weight: 1
     reg_lambda: 1.0
     # Giữ estimator một luồng; song song hóa ở tầng GridSearchCV.
     n_jobs: 1
     tuning:
       search_n_jobs: 2
+      # Favor HIGH ranking while allowing at most 5% more CV RMSE than the
+      # most accurate candidate. The small-tree baseline stays in the search.
+      rmse_tolerance: 0.05
       param_grid:
-        n_estimators: [1, 2, 3, 4, 5]
-        max_depth: [1, 2, 3]
-        learning_rate: [0.01, 0.03, 0.05, 0.07, 0.09, 0.11]
-        subsample: [0.4, 0.45, 0.5, 0.55, 0.6, 0.65]
-        colsample_bytree: [0.1, 0.2, 0.3]
+        - n_estimators: [5]
+          max_depth: [3]
+          learning_rate: [0.11]
+          subsample: [0.4, 0.5, 0.65]
+          colsample_bytree: [0.3]
+        - n_estimators: [50, 150, 300]
+          max_depth: [2, 3]
+          learning_rate: [0.03, 0.1]
+          subsample: [0.8]
+          colsample_bytree: [0.8]
       fast_param_grid:
         n_estimators: [3]
         max_depth: [1, 2]
