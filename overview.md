@@ -73,24 +73,24 @@ CSV OHLCV
 - **Nhãn (target):** giá trị mô hình cần học. `target_volatility_5d` tại ngày `t` là độ lệch chuẩn mẫu (`ddof=1`) của return ở `t+1...t+5`, tính theo điểm phần trăm và không annualize.
 - **Data leakage:** vô tình đưa thông tin tương lai vào đầu vào hoặc quá trình chọn mô hình. Dự án cấm cột `date` và `target_*` trong feature schema; chia thời gian và purge ranh giới để giảm rò rỉ do nhãn bao phủ nhiều phiên.
 
-Các feature mặc định: `return_1d`, `return_5d`, `return_10d`, `return_20d`, `MA_5`, `MA_10`, `MA_20`, `MA_50`, `rolling_volatility_5`, `rolling_volatility_20`, `volume_change`, `volume_ma_20`, `high_low_range`, `open_close_range`. Rolling volatility ở đây là độ lệch chuẩn các return lịch sử; MA là trung bình giá đóng cửa. Đây là các giá trị thô, không phải mọi feature đều đã chuẩn hóa.
+Các feature mặc định: `return_1d`, `return_5d`, `return_10d`, `return_20d`, `close_to_ma_5`, `close_to_ma_10`, `close_to_ma_20`, `close_to_ma_50`, `rolling_volatility_5`, `rolling_volatility_20`, `volume_change`, `volume_to_ma_20`, `high_low_range`, `open_close_range`. Rolling volatility là độ lệch chuẩn các return lịch sử; các feature `close_to_ma_*` và `volume_to_ma_20` biểu diễn độ lệch tương đối so với trung bình trượt.
 
 ### Các mô hình
 
 - **GARCH(1,1):** ước lượng `omega`, `alpha`, `beta` chỉ trên return train; sau đó lọc các return đã quan sát đến origin để tính phương sai có điều kiện. Căn bậc hai trung bình phương sai dự báo nhiều bước được dùng làm xấp xỉ target. Nó không hoàn toàn đồng nhất về mặt toán học với độ lệch chuẩn mẫu của năm return tương lai.
-- **XGBoost:** hồi quy trên đúng 14 feature theo thứ tự cấu hình. Tuning thử 8 tổ hợp mặc định hoặc 2 tổ hợp với `--fast`; tiêu chí là RMSE validation. Dự báo hồi quy âm được giữ trong `raw_prediction` để phân tích, nhưng forecast hiển thị được chặn dưới ở 0 vì độ biến động không âm.
+- **XGBoost:** hồi quy trên đúng 14 feature theo thứ tự cấu hình. Tuning thử 15 tổ hợp mặc định hoặc 2 tổ hợp với `--fast`; chọn average precision HIGH tốt nhất trong các tổ hợp có RMSE validation không quá 5% so với tốt nhất. Dự báo hồi quy âm được giữ trong `raw_prediction` để phân tích, nhưng forecast hiển thị được chặn dưới ở 0 vì độ biến động không âm.
 - **LSTM:** nhận chuỗi `sequence_length` ngày kết thúc tại origin. `StandardScaler` chỉ fit trên feature của train; validation dùng early stopping để chọn trọng số. Với cấu hình mặc định, cửa sổ dài 20 phiên. Dự báo âm cũng được chặn ở 0.
 - **Seed:** cấu hình mặc định 42 để tăng khả năng lặp lại, dù một số phép tính thư viện/phần cứng có thể vẫn khác biệt nhỏ.
 
 ### Cảnh báo rủi ro và đánh giá
 
-`WarningEngine` tính quantile 70% và 90% của target train để lập hai ngưỡng:
+`WarningEngine` tính quantile 50% và 70% của target train để lập hai ngưỡng:
 
 - `NORMAL`: dưới ngưỡng WARNING.
 - `WARNING`: từ ngưỡng WARNING đến dưới ngưỡng HIGH.
 - `HIGH`: bằng hoặc vượt ngưỡng HIGH.
 
-Đây là phân loại mức biến động tương đối theo phân phối train, không phải xác suất thua lỗ hoặc tín hiệu mua/bán. Ngưỡng được cố định từ train để áp dụng cho dự báo và test.
+Đây là phân loại mức biến động tương đối theo phân phối train, không phải xác suất thua lỗ hoặc tín hiệu mua/bán. Nhãn HIGH thực tế dùng ngưỡng từ train; ngưỡng trên điểm dự báo được hiệu chỉnh riêng cho từng model trên validation. Ngân sách cảnh báo XGBoost hiện là tối đa 30% ngày validation, so với mức mặc định 15% cho GARCH/LSTM.
 
 MAE và RMSE đo sai số dự báo; R² đo mức phù hợp khi có đủ mẫu. Chỉ số precision/recall/F1 và confusion matrix đánh giá riêng việc nhận diện nhãn HIGH. Các mô hình được căn theo những ngày test chung trước khi so sánh; vì vậy một số origin test có thể bị loại nếu mô hình không tạo được dự báo tương ứng.
 

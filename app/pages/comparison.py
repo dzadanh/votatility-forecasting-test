@@ -28,6 +28,8 @@ def render(predictions, metrics, metadata):
     policy = metadata.get("alert_policy")
     if policy:
         st.caption(f"Ngưỡng HIGH thực tế: {policy['actual_high_threshold']:.3f}. Ngưỡng dự báo được chọn trên validation; giới hạn tần suất {policy['max_alert_rate']:.0%}, precision tối thiểu {policy['min_precision']:.0%}.")
+        for name, override in policy.get("model_overrides", {}).items():
+            st.caption(f"{name}: giới hạn cảnh báo validation {override.get('max_alert_rate', policy['max_alert_rate']):.0%}, precision tối thiểu {override.get('min_precision', policy['min_precision']):.0%}.")
     st.caption("Các ngày HIGH liên tiếp được gộp thành một high_alert_event ở lần đầu chuyển mức; cảnh báo thực tế cần lớp gửi thông báo đọc cờ này.")
     history = predictions[predictions.partition == "test"]
     if not history.empty:
