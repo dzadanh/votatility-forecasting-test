@@ -8,14 +8,14 @@ data:
     - return_5d
     - return_10d
     - return_20d
-    - MA_5
-    - MA_10
-    - MA_20
-    - MA_50
+    - close_to_ma_5
+    - close_to_ma_10
+    - close_to_ma_20
+    - close_to_ma_50
     - rolling_volatility_5
     - rolling_volatility_20
     - volume_change
-    - volume_ma_20
+    - volume_to_ma_20
     - high_low_range
     - open_close_range
 split:
@@ -29,6 +29,10 @@ alert_policy:
   # Validation calibration limits; the selector favors recall within these limits.
   max_alert_rate: 0.15
   min_precision: 0.25
+lstm_walk_forward:
+  max_alert_rate: 0.30  # validation budget for HIGH-focused LSTM only
+  min_precision: 0.25
+  fallback_to_budget: true  # still emit budgeted alerts if precision is unattainable
 seed: 42
 models:
   garch:
@@ -43,11 +47,12 @@ models:
     n_jobs: 2
   lstm:
     hidden_size: 32
-    epochs: 25
+    epochs: 500
     patience: 5
     batch_size: 32
     learning_rate: 0.001
     weight_decay: 0.0001
+    high_loss_weight: 0.0  # opt-in HIGH head; walk-forward search tests positive weights
 paths:
   raw: data/raw
   artifacts: artifacts

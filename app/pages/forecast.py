@@ -15,8 +15,14 @@ def render(predictions, warning, metadata):
     row = latest.iloc[-1]
     st.metric(f"Dự báo độ biến động {metadata['horizon']} phiên", f"{row.predicted_volatility:.3f} điểm %")
     st.write(f"Mức cảnh báo: **{row.risk_level}** · Thông tin đến hết phiên **{pd.Timestamp(row.date).date()}**")
-    high_threshold = warning.get("model_high_thresholds", {}).get(model, warning["high_threshold"])
-    st.caption(f"Ngưỡng WARNING ≥ {warning['warning_threshold']:.3f}; HIGH của {model} ≥ {high_threshold:.3f} điểm %.")
+    high_score_threshold = warning.get("model_high_probability_thresholds", {}).get(model)
+    if high_score_threshold is not None and pd.notna(row.get("high_probability")):
+        st.caption(f"Ngưỡng WARNING ≥ {warning['warning_threshold']:.3f} điểm %; "
+                   f"HIGH của {model} khi điểm HIGH {row.high_probability:.3f} ≥ "
+                   f"{high_score_threshold:.3f}. Điểm này chưa được hiệu chuẩn thành xác suất.")
+    else:
+        high_threshold = warning.get("model_high_thresholds", {}).get(model, warning["high_threshold"])
+        st.caption(f"Ngưỡng WARNING ≥ {warning['warning_threshold']:.3f}; HIGH của {model} ≥ {high_threshold:.3f} điểm %.")
     if "high_alert_event" in row and row.high_alert_event:
         st.info("Đây là lần chuyển mới sang mức HIGH trong chuỗi dự báo đã lưu.")
     elif row.risk_level == "HIGH":
