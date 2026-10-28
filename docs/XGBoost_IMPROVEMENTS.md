@@ -1,79 +1,62 @@
-# XGBoost: quá trình cải tiến và kết quả hiện tại
+# XGBoost: cải tiến dự báo độ biến động và cảnh báo HIGH
 
-Tài liệu này ghi lại các cải tiến đang có trong mã nguồn XGBoost, cách chọn tham số và kết quả trong artifact hiện tại. Mục tiêu là dự báo độ biến động thực tế trong 5 phiên giao dịch tiếp theo. Target được tính bằng độ lệch chuẩn của lợi suất ngày từ `t+1` đến `t+5`. Các con số dưới đây là snapshot của dữ liệu và artifact trong repo, không bảo đảm lặp lại ở lần chạy hoặc giai đoạn khác.
+Tài liệu này ghi lại thay đổi của XGBoost trên bốn mã **ACB, FPT, HPG, VIC** và so sánh với metrics trước khi cải tiến. Bài toán vẫn là dự báo độ lệch chuẩn mẫu của return trong **5 phiên giao dịch kế tiếp**; HIGH là mức độ biến động tương đối, không phải tín hiệu giao dịch. Các kết quả dưới đây là thử nghiệm lịch sử trên dữ liệu cục bộ.
 
-## 1. Bản XGBoost ban đầu và vấn đề
+## 1. Mốc so sánh và cách kiểm tra
 
-- XGBoost hồi quy dự báo một giá trị liên tục `target_volatility_5d` từ các đặc trưng kỹ thuật tại ngày dự báo.
-- Chọn tham số thủ công hoặc qua một lần chia train/validation dễ phụ thuộc vào một khoảng thời gian cụ thể. Dữ liệu chuỗi thời gian cần được chia theo thứ tự thời gian.
-- Cây quá sâu, nhiều cây hoặc lấy mẫu quá rộng có thể khiến mô hình bám sát nhiễu của tập train. Cần chọn cấu hình trên nhiều fold thời gian và giữ riêng giai đoạn test.
+- **Bản cũ:** XGBoost được chọn theo MSE trên validation; ngân sách cảnh báo HIGH tối đa 15% số origin validation. Trước khi người dùng train lại, metrics cũ nằm ở `artifacts/<TICKER>/`. Sau khi thư mục đó được ghi bằng bản mới, baseline đã được **dựng lại** tại `artifacts/xgboost_baseline_reproduced/<TICKER>/` bằng đúng tham số XGBoost đã chọn trước đây và ngân sách 15%. Bốn file `config_<TICKER>.yaml` trong thư mục này ghi cấu hình dựng lại. Các metrics dựng lại khớp với số đã đọc từ artifact cũ trước khi ghi đè; đây không phải bản sao nguyên trạng của model cũ.
+- **Chỉ đổi cách chọn XGBoost:** artifact ở `artifacts/xgboost_high_trial/<TICKER>/` dùng mô hình mới nhưng vẫn giữ ngân sách 15% trên validation.
+- **Cấu hình hiện tại:** `artifacts/<TICKER>/` là lần người dùng train lại với mô hình mới và ngân sách XGBoost 30% trên validation. Artifact thử nghiệm độc lập ở `artifacts/xgboost_high_budget30_trial/<TICKER>/` cho cùng metrics XGBoost.
 
-## 2. Những cải tiến đã thực hiện
+Đã đối chiếu `date`, `actual_volatility` và `actual_risk_level` của từng hàng XGBoost trên test giữa baseline dựng lại và artifact chính: **khớp cả bốn mã**. ACB/FPT có 291 origin test từ 11/08/2025 đến 12/10/2026; HPG có 260 origin từ 01/10/2025 đến 16/10/2026; VIC có 259 origin từ 01/10/2025 đến 15/10/2026. Cả hai mốc dùng cùng định nghĩa HIGH thực tế: quantile **0,70** của target trên train. `mota.txt` và một số tài liệu cũ mô tả quantile 0,90; cấu hình và artifact của phép so sánh này dùng 0,70.
 
-### Tuning đồng thời trên các fold theo thời gian
+## 2. Những cải tiến đã áp dụng
 
-`src/models/xgboost_tuning.py` dùng `GridSearchCV` trên các fold thời gian đã tạo trong dataset. Hàm ánh xạ index của từng fold về đúng vị trí trong ma trận đặc trưng và từ chối fold rỗng, index không hợp lệ hoặc train/validation bị chồng lấn.
+### Mở rộng khả năng học của XGBoost
 
-Tuning tối ưu MSE (`neg_mean_squared_error`) và ghi RMSE từng fold, RMSE gộp theo MSE, cấu hình tốt nhất, số ứng viên và baseline. Baseline gồm dự báo bằng trung bình target của fold train và persistence bằng `rolling_volatility_5` nếu feature này có trong schema.
+Lưới cũ chỉ thử **1–5 cây**; cả bốn mã đều chọn **5 cây**, độ sâu 3 và learning rate 0,11. Lưới mới có 15 cấu hình: ba cấu hình 5 cây cũ để làm mốc và 12 cấu hình dùng **50, 150 hoặc 300 cây**, độ sâu 2 hoặc 3, learning rate 0,03 hoặc 0,10. Tỷ lệ lấy hàng/cột của nhóm mới là 0,8. Năm fold thời gian tạo 75 lượt fit để chọn tham số, thay vì 8.100 lượt fit của lưới cũ. Feature đầu vào vẫn là 14 feature trong `config.yaml`; XGBoost vẫn hồi quy độ biến động bằng `reg:squarederror`, không có đầu phân loại HIGH riêng.
 
-### Không dùng test để chọn tham số
+### Chọn tham số theo mục tiêu HIGH và giữ sai số dự báo
 
-Grid search chạy với `refit=False`. Sau khi chọn tham số, pipeline fit mô hình cuối trên phần dữ liệu trước test; test cuối chỉ dùng để đánh giá. Dataset hiện chia fold mở rộng theo thời gian, chừa `gap=5` tại ranh giới để hạn chế target 5 phiên tương lai chồng lấn, và giữ test cuối theo thời gian.
+`src/models/xgboost_tuning.py` đo **average precision (AP)** của HIGH và RMSE trên năm fold thời gian. Ngưỡng xác định HIGH cho việc chọn tham số được tính từ train của fold đầu tiên, trước các cửa sổ validation. Bộ chọn lấy cấu hình có AP cao nhất trong các cấu hình có RMSE validation không quá **5%** so với RMSE tốt nhất. Mỗi cấu hình và hai điểm số được lưu trong `metadata.json`; mô hình được fit lại trên toàn bộ phần trước test sau khi chọn tham số.
 
-### Thu hẹp độ phức tạp và kiểm soát tài nguyên
+Tham số được chọn lần này: **ACB/HPG** dùng 300 cây, độ sâu 3, learning rate 0,03; **FPT** dùng 50 cây, độ sâu 2, learning rate 0,10; **VIC** dùng 50 cây, độ sâu 3, learning rate 0,10. Cả bốn dùng `subsample=0.8` và `colsample_bytree=0.8`. Việc ACB/HPG chọn 300 cây, biên trên của lưới mới, là lý do hợp lý để thử thêm cấu hình trong nghiên cứu tiếp theo; kết quả hiện tại chưa chứng minh thêm cây sẽ tiếp tục tốt hơn.
 
-Grid hiện tại trong `config.yaml` gồm:
+### Hiệu chỉnh riêng ngân sách cảnh báo
 
-- `n_estimators`: 1–5
-- `max_depth`: 1–3
-- `learning_rate`: 0.01, 0.03, 0.05, 0.07, 0.09, 0.11
-- `subsample`: 0.40–0.65, bước 0.05
-- `colsample_bytree`: 0.1, 0.2, 0.3
+`alert_policy.model_overrides.xgboost.max_alert_rate` cho phép XGBoost dùng tối đa **30%** origin validation làm cảnh báo HIGH, thay cho mức mặc định **15%** của GARCH/LSTM. Điều kiện precision tối thiểu trên validation vẫn là **25%**. Bộ hiệu chỉnh chọn ngưỡng dự báo theo recall trong các ràng buộc đó. Đây là ngân sách **trên validation**, không phải giới hạn cứng trên test; tỷ lệ HIGH trên test có thể cao hơn 30%. `app/pages/comparison.py` hiển thị chính sách riêng của mô hình, và `scripts.train`/`scripts.evaluate` có `--artifact-dir` để lưu, đọc thử nghiệm mà không ghi đè artifact chính.
 
-Grid đầy đủ có 1.620 cấu hình và 5 fold. `fast_param_grid` chỉ có 2 cấu hình để chạy nhanh. Song song hóa ở tầng `GridSearchCV` (`search_n_jobs=2`), còn mỗi estimator mặc định dùng một luồng (`n_jobs=1`) để tránh tranh chấp CPU.
+## 3. Kết quả trên cùng ngày test: bản cũ → cấu hình hiện tại
 
-Grid giới hạn số cây và độ sâu, đồng thời thử lấy mẫu một phần dữ liệu và đặc trưng. `min_child_weight=1` và `reg_lambda=1.0` được giữ từ cấu hình cơ sở, không nằm trong grid tìm kiếm.
+`Tỷ lệ cảnh báo` = số origin test được dự báo HIGH / tổng origin test. `Đúng` là HIGH thực tế được phát hiện (TP); `sai` là cảnh báo HIGH khi thực tế không HIGH (FP). Precision, recall và F1 đều xét riêng lớp HIGH. MAE/RMSE tính trên độ biến động liên tục; **thấp hơn là tốt hơn**. R² cao hơn là tốt hơn.
 
-### Kiểm soát feature và dữ liệu
+- **ACB — 291 origin, 89 HIGH thực tế:** MAE **0,6132 → 0,6342**; RMSE **0,8687 → 0,8501**; R² **0,0334 → 0,0744**. Cảnh báo HIGH **58 → 141** (**19,9% → 48,5%**), gồm **16 đúng / 42 sai → 37 đúng / 104 sai**. Precision **27,6% → 26,2%**; recall **18,0% → 41,6%**; F1 **0,2177 → 0,3217**.
+- **FPT — 291 origin, 144 HIGH thực tế:** MAE **0,6195 → 0,6427**; RMSE **0,8230 → 0,8121**; R² **0,0190 → 0,0448**. Cảnh báo HIGH **76 → 169** (**26,1% → 58,1%**), gồm **53 đúng / 23 sai → 99 đúng / 70 sai**. Precision **69,7% → 58,6%**; recall **36,8% → 68,8%**; F1 **0,4818 → 0,6326**.
+- **HPG — 260 origin, 44 HIGH thực tế:** MAE **0,6442 → 0,6009**; RMSE **0,8147 → 0,8271**; R² **-0,0340 → -0,0659**. Cảnh báo HIGH **10 → 53** (**3,8% → 20,4%**), gồm **3 đúng / 7 sai → 15 đúng / 38 sai**. Precision **30,0% → 28,3%**; recall **6,8% → 34,1%**; F1 **0,1111 → 0,3093**.
+- **VIC — 259 origin, 188 HIGH thực tế:** MAE **1,2308 → 1,1253**; RMSE **1,5768 → 1,4201**; R² **-0,4763 → -0,1976**. Cảnh báo HIGH **130 → 189** (**50,2% → 73,0%**), gồm **107 đúng / 23 sai → 142 đúng / 47 sai**. Precision **82,3% → 75,1%**; recall **56,9% → 75,5%**; F1 **0,6730 → 0,7533**.
 
-`feature_matrix` chỉ lấy đúng danh sách feature đã cấu hình, từ chối cột thiếu, NaN/vô cực, và không cho phép `date` hoặc target làm đầu vào. Target được tạo từ lợi suất tương lai, không được đưa vào feature tại cùng origin. Wrapper lưu schema feature, target và horizon cùng mô hình.
+Tỷ lệ cảnh báo, recall và F1 HIGH tăng ở cả bốn mã. **Precision giảm ở cả bốn**, và số cảnh báo sai tăng rõ, nhất là ACB (**+62**) và FPT (**+47**). RMSE giảm ở ACB, FPT, VIC nhưng tăng nhẹ ở HPG; MAE tăng ở ACB và FPT. Vì vậy không thể kết luận mọi mặt của XGBoost đều tốt hơn.
 
-### Metadata để truy vết
+### Tách tác động của mô hình và ngân sách cảnh báo
 
-Pipeline lưu cấu hình XGBoost cuối cùng, số fold và ứng viên, điểm validation từng fold, baseline và kết quả tuning trong metadata. Kết quả test lưu riêng trong `metrics.json`; lần train mới có thể ghi đè artifact.
+Với **mô hình mới nhưng vẫn giữ ngân sách 15%**, kết quả test trung gian là:
 
-## 3. Kết quả trong artifact hiện tại
+- **ACB:** 63 cảnh báo, 27 đúng / 36 sai; recall **30,3%**, F1 **0,3553**. F1 cao hơn bản 30% (**0,3217**) dù phát hiện ít HIGH hơn.
+- **FPT:** 117 cảnh báo, 73 đúng / 44 sai; recall **50,7%**, F1 **0,5594**.
+- **HPG:** 26 cảnh báo, 7 đúng / 19 sai; recall **15,9%**, F1 **0,2000**.
+- **VIC:** 91 cảnh báo, 76 đúng / 15 sai; recall **40,4%**, F1 **0,5448**. Ở mức 15%, F1 này thấp hơn baseline cũ (**0,6730**); mức 30% làm recall và F1 tăng nhưng cũng thêm cảnh báo sai.
 
-Bảng dưới đây lấy từ `artifacts/<MÃ>/metrics.json` và `metadata.json`. RMSE đo sai số dự báo độ biến động. R² gần 0 hoặc âm cho thấy mô hình chưa giải thích tốt biến thiên target trong giai đoạn tương ứng. Precision/recall/F1 HIGH phụ thuộc ngưỡng cảnh báo hiệu chỉnh trên validation, là mục tiêu bổ sung chứ không thay thế metric hồi quy.
+RMSE của mốc trung gian bằng cấu hình hiện tại vì chỉ thay **ngưỡng cảnh báo**, không thay dự báo độ biến động. Những số này giúp phân biệt tác động của mô hình mới với tác động của việc cho phép nhiều cảnh báo hơn.
 
-| Mã | CV RMSE trung bình* | Test RMSE | Test R² | HIGH precision | HIGH recall | HIGH F1 |
-|---|---:|---:|---:|---:|---:|---:|
-| ACB | 0.7648 | 0.8798 | 0.0086 | 0.2389 | 0.3034 | 0.2673 |
-| FPT | 0.7419 | 0.8254 | 0.0133 | 0.5758 | 0.3958 | 0.4691 |
-| HPG | 0.9042 | 0.8177 | -0.0417 | 0.4286 | 0.0682 | 0.1176 |
-| VIC | 1.1239 | 1.6354 | -0.5882 | 0.7895 | 0.3191 | 0.4545 |
+## 4. Giới hạn và cách chạy lại
 
-\* `mean_validation_rmse` là trung bình số học RMSE của từng fold; `validation_rmse` trong metadata là căn bậc hai của MSE trung bình gộp. Đơn vị target phụ thuộc cách scale lợi suất trong pipeline.
+Các giai đoạn test đã được xem nhiều lần trong quá trình phát triển, bao gồm việc so ngân sách 15% và 30%. Vì vậy đây là **so sánh lịch sử**, không phải đánh giá trên holdout chưa từng xem. Cần dữ liệu giao dịch đến sau giai đoạn test để kiểm tra khả năng lặp lại, đặc biệt là số cảnh báo sai. `alert_count` đếm các **ngày/origin HIGH**; `high_alert_event` đếm lần mới chuyển sang HIGH và có thể ít hơn nhiều.
 
-CV RMSE của XGBoost thấp hơn baseline dự báo trung bình target trên cả bốn mã. So với persistence `rolling_volatility_5`, XGBoost tốt hơn ở ACB và VIC, nhưng kém hơn nhẹ ở FPT và HPG. Kết quả test không đồng đều: ACB/FPT có R² dương rất nhỏ, HPG/VIC có R² âm; VIC có RMSE test cao. Quy trình tuning đã chuẩn hóa cách chọn tham số theo thời gian, nhưng kết quả hiện tại chưa chứng minh khả năng tổng quát hóa tốt trên mọi mã.
-
-Cả bốn artifact chọn `n_estimators=5`, `learning_rate=0.11`, `colsample_bytree=0.3`; `max_depth` là 2 hoặc 3 và `subsample` nằm trong khoảng 0.40–0.55. Nghiệm ở biên trên của một số khoảng tìm kiếm; cần mở rộng grid có kiểm soát và kiểm tra trên giai đoạn mới trước khi kết luận cấu hình tối ưu.
-
-## 4. Giới hạn và hướng cải tiến tiếp theo
-
-- `src/pipeline/dataset.py` hiện dùng expanding chronological folds (`max_train_size=None`) và test holdout cuối; chưa triển khai rolling window giới hạn 12 tháng hoặc Moving Block Bootstrap. Nếu yêu cầu rolling 12 tháng/MBB vẫn còn hiệu lực, cần triển khai trong bộ tạo dataset trước khi mô tả đó là hành vi hiện tại.
-- Target có horizon 5 phiên nên các origin gần nhau có thể có nhãn chồng lấn. `gap=5` xử lý ranh giới fold/test và cần được giữ khi thay đổi cách chia dữ liệu.
-- R² âm ở HPG/VIC và chênh lệch CV/test cho thấy cần đánh giá trên nhiều giai đoạn walk-forward mới. Không nên chọn model chỉ theo một giá trị validation hoặc test đã dùng nhiều lần để thử nghiệm.
-- Feature importance bằng 0 chỉ cho biết feature không được dùng trong cây ở lần fit đó. Với `colsample_bytree` thấp và tối đa 5 cây, điều này có thể xảy ra tự nhiên. Chỉ loại feature sau khi so sánh có/không feature trên cùng fold thời gian và xác nhận trên giai đoạn độc lập.
-- Grid hiện chỉ thử 1–5 cây. Nên so sánh thêm một grid mở rộng về `n_estimators` và regularization trên validation theo thời gian; không mở rộng chỉ để giảm training error.
-- Ngưỡng cảnh báo HIGH được chọn trên validation; tỷ lệ cảnh báo và precision/recall trên test có thể khác. Cần báo cáo cả regression metrics, baseline, số cảnh báo và chất lượng phát hiện HIGH.
-
-## 5. Chạy lại
-
-Từ thư mục gốc repo:
+Tại thư mục gốc repository, có thể chạy lại vào một thư mục riêng:
 
 ```powershell
-.\.venv\Scripts\python.exe -m scripts.train --ticker ACB --model xgboost
+python -m scripts.train --ticker ACB --model xgboost --artifact-dir artifacts/xgboost_repeat
+python -m scripts.evaluate --ticker ACB --artifact-dir artifacts/xgboost_repeat
 ```
 
-Thay `ACB` bằng `FPT`, `HPG` hoặc `VIC` để chạy mã khác. Cấu hình đầy đủ đánh giá 1.620 ứng viên trên 5 fold; dùng `--fast` để chạy grid nhanh 2 cấu hình. Kết quả nằm trong `artifacts/<MÃ>/`: `metrics.json` chứa đánh giá test, `metadata.json` chứa cấu hình và kết quả tuning. Artifact và dữ liệu nguồn có thể bị Git ignore.
+Thay `ACB` bằng `FPT`, `HPG` hoặc `VIC` để chạy các mã còn lại; **không dùng `--fast` để đánh giá chất lượng**. Các artifact trong `artifacts/` thường bị Git ignore. Baseline dựng lại phụ thuộc vào dữ liệu thô hiện có và các file cấu hình lưu ở `artifacts/xgboost_baseline_reproduced/`; khi chia sẻ kết quả, cần giữ cả provenance này hoặc tạo bản xuất riêng vì Git không tự đưa artifact lên repository.
